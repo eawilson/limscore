@@ -12,7 +12,7 @@
                 {{ field(class="form-control is-invalid", autocomplete="new-password") }}
                 <div class="invalid-feedback">{{ field.errors }}</div>
             {% else %}
-                {{ field(class="form-control", autocomplete="new-password")|safe }}
+                {{ field(class="form-control", autocomplete="new-password") }}
             {% endif %}
         </div>
     {% endfor %}
@@ -20,4 +20,16 @@
     {{ macros.render_buttons(buttons) }}
   </form>
 </div>
+{% endblock %}
+
+
+{% block script %}
+    <script>
+        $(function () {    
+            $('form').on('submit', function(e){
+                const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                $('#timezone').val(tz);
+                });
+            });
+    </script>
 {% endblock %}

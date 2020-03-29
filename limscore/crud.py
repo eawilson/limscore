@@ -6,12 +6,12 @@ from sqlalchemy import select, join, or_, and_
 from sqlalchemy.exc import IntegrityError
 
 
-from flask import render_template, redirect, url_for, request, Blueprint, current_app, session
+from flask import redirect, url_for, request, Blueprint, current_app, session
 from werkzeug.exceptions import Conflict, Forbidden, BadRequest
 
-from .utils import url_fwrd, url_back, tablerow, navbar, abort, engine, login_required, surname_forename
+from .utils import url_fwrd, url_back, tablerow, navbar, abort, engine, login_required, surname_forename, back_exists, render_page, unique_violation_or_reraise
 from .forms import ReorderForm
-from . import logic
+from .logic import admin_edit, edit_m2m
 from .models import metadata
 
 
@@ -19,84 +19,19 @@ __all__ = ("list_view", "reorder_view", "upsert_view", "crud_route", "app")
 
 
 
-app = Blueprint("admin", __name__)
-
-
-crudlists_by_group = defaultdict(dict)
+class MergedColumn(object):
+    def __repr__(self):
+        return "MergedColumn({})".format(repr(self._vals))
     
+    def __init__(self, val):
+        self._vals = [val]
 
+    def __str__(self):
+        return ", ".join(str(val) for val in self._vals)
 
-@app.route("/")
-@login_required()
-def tables_list():
-    rows = []
-    for table, endpoint in sorted(crudlists_by_group.get(session["group"], {}).items()):
-        rows += [tablerow((table.title(), ()), **{"class": "clickable", "data": [("href", url_fwrd(endpoint))]})]
-    return render_template("table.html",
-                           table={"rows": rows},
-                           title="Table",
-                           navbar=navbar("Tables"))
-
-
-
-def crud_route(*groups):
-    """Decorator to provide routing for crud functions. These functions
-        must be named tablename_action where action is upsert or list.
-
-    Args:
-        groups (list of str): Groups allowed to make a request to this 
-            endpoint.
-        
-    Returns:
-        decorated function.
-        
-    Raises:
-        RuntimeError if name of decorated function is of the wrong format.
-        
-     """
-    def decorator(function):
-        nonlocal groups
-        if not groups:
-            groups = ["Admin.Administrator", "Admin."]
-        
-        tablename, action = function.__name__.split("_")
-        if action == "upsert":
-            app.add_url_rule("/{}/<int:row_id>".format(tablename),
-                             endpoint=function.__name__,
-                             view_func=function,
-                             methods=["GET", "POST"])
-            if list(signature(function).parameters.items())[0][1].default is None:
-                app.add_url_rule("/{}/new".format(tablename),
-                                 endpoint=function.__name__,
-                                 view_func=function,
-                                 methods=["GET", "POST"])            
-
-        elif action == "list":
-            app.add_url_rule("/{}".format(tablename),
-                             endpoint=function.__name__,
-                             view_func=function, methods=["GET"])
-            for group in groups:
-                if not group.endswith("."):
-                    endpoint = ".{}".format(function.__name__)
-                    crudlists_by_group[group][tablename] = endpoint
-
-            if tablename in metadata.tables:
-                table = metadata.tables[tablename]
-                if "order" in table.c:
-                    @login_required(*groups)
-                    def reorder_function():
-                        return reorder_view(table)
-                    app.add_url_rule("/{}/reorder".format(tablename),
-                                    endpoint="{}_reorder".format(tablename),
-                                    view_func=reorder_function,
-                                    methods=["GET", "POST"])
-            
-        else:
-            msg = "Invalid crud function name {}".format(function.__name__)
-            raise RuntimeError(msg)
-                
-        return function
-    return decorator
+    def merge(self, val):
+        if val not in self._vals:
+            self._vals.append(val)
 
 
 
@@ -145,9 +80,11 @@ def make_joins(tables):
 
 
 
-def list_view(*table_definition):#, **filters):
-    headings, fields = zip(*table_definition)
-    
+def list_view(*table_definition, title=None):#, **filters):
+    """ table_definition consists of a list of tuples. Each tuple has three
+        eleents (name, stupidtable datatype, contents).
+    """
+    head, fields = zip(*table_definition)
     memory = MemoryDict()
     for column in fields:
         if hasattr(column, "__call__"):
@@ -159,64 +96,79 @@ def list_view(*table_definition):#, **filters):
                               in columns).keys())
     primary_table = tables[0]
     columns += [primary_table.c.id]
-
+    if "deleted" in primary_table.c:
+        columns += [primary_table.c.deleted]
     upsert_endpoint = "admin.{}_upsert".format(primary_table.name)
     reorder_endpoint = "admin.{}_reorder".format(primary_table.name)
 
-    if "deleted" in primary_table.c:
-        columns += [primary_table.c.deleted]
-        order = [primary_table.c.deleted]
-    else:
-        order = []
-
+    order = []
     for table in tables:
         if "order" in table.c:
             order += [table.c.order]
-        elif "name" in table.c:
-            order += [table.c.name]
         elif "surname" in table.c and "forename" in table.c:
             order += [table.c.surname, table.c.forename]
+        elif "name" in table.c:
+            order += [table.c.name]
     
     sql = select(columns).select_from(make_joins(tables)).order_by(*order)
+    
+    buttons = {}
+    if "deleted" in primary_table.c:
+        args = dict(request.args)
+        show = args.pop("show", False)
+        if show:
+            buttons["info"] = ("Hide Deleted", url_for(request.endpoint, **request.view_args, **args))
+        else:
+            sql = sql.where(primary_table.c.deleted == False)
+            buttons["info"] = ("Show Deleted", url_for(request.endpoint, show="True", **request.view_args, **args))
+            
     #if filters:
         #where_clauses = [getattr(primary_table.c, key) == val for key, val
                          #in filters.items()]
         #sql = sql.where(*where_clauses)
     
     if upsert_endpoint in current_app.view_functions:
-        def kwargs(row):
-            return {"class": "clickable",
-                    "data": [("href", url_fwrd(upsert_endpoint,
-                                               row_id=row["id"]))]}
+        clickable = True
     else:
-        def kwargs(row):
-            return {}
-    
-    rows = OrderedDict()
+        href = None
+    body = OrderedDict()
     with engine.connect() as conn:
         for row in conn.execute(sql):
-            output = [[row[column] if not hasattr(column, "__call__") else column(row), ()] for column in fields]
-            if row["id"] in rows:
-                previous = rows[row["id"]][0]
-                for index, cell in enumerate(output):
-                    try:
-                        if cell[0] not in previous[index][0]:
-                            previous[index][0] += ", {}".format(cell[0])
-                    except TypeError: # previous may not be a string and not have a __contains__ method
-                        pass
+            columns = []
+            for column in fields:
+                val = column(row) if hasattr(column, "__call__") else row[column]
+                columns += [val]
+                
+            if row["id"] in body:
+                if not isinstance(body[row["id"]][0][0], MergedColumn):
+                    body[row["id"]] = ([MergedColumn(col) for col in body[row["id"]][0]], body[row["id"]][1])
+                for prevcol, newcol in zip(body[row["id"]][0], columns):
+                    prevcol.merge(newcol)
             else:
-                rows[row["id"]] = tablerow(*output, deleted=(row["deleted"] if "deleted" in row else False), **kwargs(row))
-                            
-    table =  {"headings": [(heading, ()) for heading in headings], "rows": rows.values()}
+                if clickable:
+                    href = url_fwrd(upsert_endpoint, row_id=row["id"])
+                deleted = row["deleted"] if "deleted" in row else False
+                body[row["id"]] = tablerow(*columns,
+                                           deleted=deleted,
+                                           href=href)
+    
     if upsert_endpoint in current_app.view_functions:
         function = current_app.view_functions[upsert_endpoint]
         if list(signature(function).parameters.items())[0][1].default is None:
-            table["toolbar"] = (("", {"icon": "plus", "href": url_fwrd(upsert_endpoint)}),)
-            
-    buttons = [("Back", {"href": url_back()})]
-    if reorder_endpoint in current_app.view_functions:
-        buttons += [("Reorder", {"href": url_fwrd(reorder_endpoint), "class": "float-right"})]
-    return render_template("table.html", title=primary_table.name.title(), table=table, buttons=buttons, navbar=navbar("Tables"))
+            buttons["new"] = ("", url_fwrd(upsert_endpoint))
+    
+    if back_exists():
+        buttons["back"] = ("Back", url_back())
+    #if reorder_endpoint in current_app.view_functions:
+        #buttons += [("Reorder", {"href": url_fwrd(reorder_endpoint), "class": "float-right"})]
+    return render_page("table.html",
+                       title=title or primary_table.name.title(),
+                       table={"head": head, "body": body.values()},
+                       buttons=buttons)
+
+
+
+
 
 
 
@@ -242,126 +194,112 @@ def reorder_view(primary_table):
     buttons = [("Save", {"submit": url_for(request.endpoint)}),
                ("Back", {"href": url_back()})]
     title = "Reorder {}".format(primary_table.name.title())
-    return  render_template("reorder.html",
+    return  render_page("reorder.html",
                             title=title,
                             items=items,
                             form=form,
                             buttons=buttons,
-                            navbar=navbar("Tables"))
+                            active="Tables")
 
 
 
 def upsert_view(row_id, primary_table, FormClass):
     with engine.begin() as conn:
-        columns = [getattr(primary_table.c, name) for name in FormClass().keys() if name in primary_table.c]
+        columns = [primary_table.c[name] for name in FormClass().keys() if name in primary_table.c]
         if "deleted" in primary_table.c:
             columns += [primary_table.c.deleted]
-        old_data = dict(conn.execute(select(columns).where(primary_table.c.id == row_id)).first() or abort(BadRequest)) if row_id is not None else {}
+        if row_id is not None:
+            sql = select(columns).where(primary_table.c.id == row_id)
+            old_data = dict(conn.execute(sql).first() or abort(BadRequest))
+        else:
+            old_data = {}
         form = FormClass()
         
-        m2m_links = []
+        m2mtables = []
         for name, field in form.items():
-            if hasattr(field, "choices"):
-                if name in primary_table.c:
-                    column = primary_table.c[name]
-                    foreign_table = tuple(column.foreign_keys)[0].column.table
-                    if "deleted" in foreign_table.c:
-                        where_clause = foreign_table.c.deleted == False
-                        if old_data:
-                            where_clause = or_(where_clause, foreign_table.c.id == old_data[name])
-                    else:
-                        where_clause = None
-                        
-                    if "name" in foreign_table.c:
-                        sql = select([foreign_table.c.id, foreign_table.c.name]).order_by(foreign_table.c.name)
-                    elif "surname" in foreign_table.c and "forename" in foreign_table.c:
-                        sql = select([foreign_table.c.id, foreign_table.c.surname, foreign_table.c.forename]).order_by(foreign_table.c.surname, foreign_table.c.forename)                        
-                    if where_clause is not None:
-                        sql = sql.where(where_clause)
-                    rows = [dict(row) for row in conn.execute(sql)]
-                    
+            if not hasattr(field, "choices"):
+                continue
+            
+            # Many-to-one relationships
+            if name in primary_table.c:
+                column = primary_table.c[name]
+                foreign_table = tuple(column.foreign_keys)[0].column.table
+                sql = select([foreign_table.c.id, foreign_table.c.name]). \
+                        order_by(foreign_table.c.name)
+                if "deleted" in foreign_table.c:
+                    where = foreign_table.c.deleted == False
+                    if row_id is not None:
+                        where = or_(where, foreign_table.c.id == old_data[name])
+                    sql = sql.where(where)
+                field.choices = [tuple(row) for row in conn.execute(sql)]
+            
+            # Many-to-many relationships via linking table
+            else:
+                for m2mtable in primary_table.metadata.sorted_tables:
+                    if name in m2mtable.c and len(m2mtable.c) == 2:
+                        primary = None
+                        for col in m2mtable.c:
+                            table = tuple(col.foreign_keys)[0].column.table
+                            if table == primary_table:
+                                primary_col = col
+                            else:
+                                secondary_col = col
+                                foreign_table = table
+
+                        if primary_col is not None:
+                            sql = select([foreign_table.c.id, foreign_table.c.name, m2mtable.c[name]]). \
+                                    select_from(join(foreign_table, m2mtable, and_(foreign_table.c.id == secondary_col, primary_col == row_id), isouter=True)). \
+                                    order_by(foreign_table.c.name)
+                            if "deleted" in foreign_table.c:
+                                where = foreign_table.c.deleted == False
+                                if row_id is not None:
+                                    where = or_(where, primary_col == row_id)
+                                sql = sql.where(where)
+                            rows = [tuple(row) for row in conn.execute(sql)]
+                            field.choices = [tuple(row)[:2] for row in conn.execute(sql)]
+                            if row_id is not None:
+                                old_data[name] = [row[0] for row in rows if row[2]]
+                            m2mtables += [(name, m2mtable)]
+                            break
                 else:
-                    for linking_table in primary_table.metadata.sorted_tables:
-                        if name in linking_table.c:
-                            joinplan = make_join(linking_table, primary_table)
-                            if joinplan:
-                                primary_column = joinplan[1].left # column in linking table that joins to primary table
-                                linking_column = linking_table.c[name] # column in linking table that joins to foreign table
-                                foreign_column = tuple(linking_column.foreign_keys)[0].column # column in foreign table that joins to linking_table
-                                foreign_table = foreign_column.table
-                                
-                                if "name" in foreign_table.c:
-                                    sql = select([foreign_table.c.id, foreign_table.c.name, linking_column.label("present")]). \
-                                            order_by(foreign_table.c.name)
-                                elif "surname" in foreign_table.c and "forename" in foreign_table.c:
-                                    sql = select([foreign_table.c.id, foreign_table.c.surname, foreign_table.c.forename, linking_column.label("present")]). \
-                                            order_by(foreign_table.c.surname, foreign_table.c.forename)
-
-                                if "deleted" in foreign_table.c:
-                                    where_clause = foreign_table.c.deleted == False
-                                    if old_data:
-                                        where_clause = or_(where_clause, linking_column != None)
-                                else:
-                                    where_clause = None
-                                    
-                                sql = sql.select_from(join(foreign_table, linking_table, and_(linking_column == foreign_column, primary_column == row_id), isouter=True))
-                                if where_clause is not None:
-                                    sql = sql.where(where_clause)
-                                
-                                rows = [dict(row) for row in conn.execute(sql)]
-                                old_data[name] = [row["id"] for row in rows if row.pop("present")]
-                                m2m_links += [{"table": linking_table,
-                                               "field": name,
-                                               "primary_column": primary_column,
-                                               "linking_column": linking_column,
-                                               "primary_id": row_id}]
-                                break
-                        
-                if rows:
-                    if "name" in rows[0]:
-                        field.choices = [(row["id"], row["name"]) for row in rows]
-                    else:
-                        field.choices = [(row["id"], surname_forename(row)) for row in rows]                            
-        
+                    raise RuntimeError(f"No linking table found for {name}.")
+ 
         form.fill(request.form if request.method == "POST" else old_data)
-        if request.method == "POST" and form.validate():
-            form_data = form.data
-            action = request.args.get("action", "") if "deleted" in primary_table.c else ""
-            if action == "delete":
-                form_data["deleted"] = True
-            elif action == "restore":
-                form_data["deleted"] = False
 
-            for m2m_link in m2m_links:
-                m2m_link["new_linking_ids"] = form_data.pop(m2m_link["field"])
-                m2m_link["old_linking_ids"] = old_data.pop(m2m_link.pop("field"))
+        if request.method == "POST" and form.validate():
+            new_data = form.data
+            action = request.args.get("action", "") if "deleted" in primary_table.c else ""
+            if action == "Delete":
+                new_data["deleted"] = True
+            elif action == "Restore":
+                new_data["deleted"] = False
             
             try:
-                if row_id is None:
-                    pdb.set_trace()
-                    row_id = logic.admin_insert(primary_table, values=form_data, conn=conn).inserted_primary_key[0]
-                else:
-                    logic.admin_update(primary_table, where=(primary_table.c.id == row_id), values=form_data, conn=conn)
-
-                for m2m_link in m2m_links:
-                    logic.m2m(conn=conn, **m2m_link)
+                row_id = admin_edit(primary_table, row_id, new_data, old_data, conn)
+            except IntegrityError as e:
+                form[unique_violation_or_reraise(e)].errors = "Must be unique."
+            else:
+                for name, m2mtable in m2mtables:
+                    edit_m2m(primary_table,
+                            row_id,
+                            m2mtable,
+                            new_data[name],
+                            old_data.get(name, []),
+                            form[name].choices,
+                            conn)
                 return redirect(url_back())
 
-            except IntegrityError as e:
-                try:
-                    name = e._message().split(" UNIQUE constraint failed: ")[1].split(".")[1]
-                    getattr(form, name).errors = "{} must be unique.".format(name.title())
-                except (IndexError, AttributeError):
-                    raise e
-            
-    title = "{} {}".format("Edit" if row_id is not None else "New", primary_table.name.title())
-    buttons=[("Save", {"submit": url_for(request.endpoint, row_id=row_id)}), ("Cancel", {"href": url_back()})]
+    title = "Edit" if row_id is not None else "New"
+    buttons = {"submit": ("Save", url_for(request.endpoint, row_id=row_id)),
+               "back": ("Cancel", url_back())}
     if row_id is not None and "deleted" in primary_table.c:
-        if not old_data["deleted"]:
-            buttons += [("Delete", {"submit": url_for(request.endpoint, row_id=row_id, action="delete"), "class": "float-right", "style": "danger"})]
-        else:
-            buttons += [("Restore", {"submit": url_fwrd(request.endpoint, row_id=row_id, action="restore"), "class": "float-right", "style": "danger"})]
-    return render_template("form.html", form=form, buttons=buttons, title=title, navbar=navbar("Tables"))
+        action = "Restore" if old_data["deleted"] else "Delete"
+        url = url_for(request.endpoint, row_id=row_id, action=action)
+        buttons["danger"] = (action, url)
+    if row_id is not None:
+        url = url_fwrd(".editlog", tablename=primary_table.name, row_id=row_id)
+        buttons["info"] = ("History", url)
+    return render_page("form.html", form=form, buttons=buttons, title=title)
 
 
 

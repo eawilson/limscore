@@ -1,47 +1,112 @@
 import pdb
+import datetime
 from functools import wraps
 
-from flask import session, request, url_for, current_app, redirect
-from werkzeug.exceptions import Conflict, Forbidden, BadRequest
+from dateutil import parser
+import pytz
 
-from sqlalchemy import select, join, and_, or_
+from flask import session, request, url_for, current_app, redirect
+from flask.sessions import SecureCookieSessionInterface
+import flask
+from werkzeug.exceptions import Conflict, Forbidden, BadRequest, InternalServerError
+
 from sqlalchemy.exc import IntegrityError
 
-from .models import logins
+
+__all__ = ["utcnow",
+           "login_required",
+           "engine",
+           "abort",
+           "tablerow",
+           "is_valid_nhs_number",
+           "url_fwrd",
+           "url_back",
+           "initial_surname",
+           "surname_forename",
+           "root_url",
+           "render_template",
+           "render_page",
+           "navbar",
+           "sign_cookie",
+           "unique_violation_or_reraise",
+           "iso8601_to_utc"]
 
 
 
-_navbars = {}
-valid_groups = set(["Admin.Administrator", "External.View"])
+menus = {}
+valid_groups = set(["Admin.Administrator"])
 
 
 
-def as_navbar(section):
-    def login_decorator(function):
-        _navbars[section] = function
+def iso8601_to_utc(dt_string):
+    dt = parser.isoparse(dt_string)
+    return dt.astimezone(pytz.utc)
+
+
+
+def render_template(name, style=None, **kwargs):
+    """ Adds correct prefix to template supplied to flask.render_template.
+        Enables swapping of css styles on the fly.
+    """
+    if style is None:
+        style = current_app.config.get("STYLE", None)
+    if style is not None:
+        name = f"{style}/{name}"
+    return flask.render_template(name, **kwargs)
+
+
+
+def render_page(name, active=None, **context):
+    """ Wrapper around flask.render_template to add appropriate navbar context
+        before calling flask.render_template itself. To be used instead of 
+        flask.render_template when rendering a full page. Not to be used for
+        ajax calls for dropdowns etc.
+    """
+    config = current_app.config
+    application = config.get("NAME", "")
+    if "id" not in session:
+        navbar = {"app": application}
+    else:
+        section = session["section"]
+
+        right = [{"text": session.get("project", ""),
+                  "href": url_for("auth.project_menu"),
+                  "dropdown": True},
+                 {"text": session.get("site", ""),
+                  "href": url_for("auth.site_menu"),
+                  "dropdown": True},
+                 {"text": "",
+                  "href": url_for("auth.logout_menu"),
+                  "dropdown": True}]
+        navbar = {"app": application,
+                  "section": section,
+                  "active": active,
+                  "left": menus[section](),
+                  "right": right}
+    return render_template(name, navbar=navbar, **context)
+
+
+
+def utcnow():
+    """ Returns current datetime with timezone set to UTC. Assumes that the
+        server is running on UTC time which is the only sensible configuration
+        anyway.
+    """
+    return datetime.datetime.now(tz=datetime.timezone.utc)
+
+
+
+def navbar(section):
+    """ Decorator to register a new navbar menu.
+    """
+    def decorator(function):
+        menus[section] = function
         return function
-    return login_decorator
+    return decorator
 
 
 
-def navbar(active=None):
-    section = session.get("section", "")
-    if "TITLE" in current_app.config:
-        title = current_app.config["TITLE"].format(section)
-    else:
-        title = section
-    if section not in ("Admin", "External"):
-        site = session.get("site", "")
-    else:
-        site = ""
-    return  {"title": title,
-             "site":  site,
-             "active": active, 
-             "menuitems": _navbars.get(section, lambda:())()}
-
-
-
-def login_required(*groups, ajax_or_new_tab=False):
+def login_required(*groups, history=True):
     """Decorator to protect every view function (except login, set_password,
         etc that are called before user is logged in). Group names are in the
         format Section.Role. If no groups are provided then this endpoint can
@@ -96,20 +161,16 @@ def login_required(*groups, ajax_or_new_tab=False):
         @wraps(function)
         def wrapper(*args, **kwargs):
             if "id" not in session:
-                return redirect(url_for("admin.login"))
-            
-            if request.method == "POST" and \
-               request.form.get("csrf", default="") != session["csrf"]:
-                return redirect(url_for("admin.logout"))
+                return redirect(url_for("auth.login"))
             
             if group_names and session["group"] not in group_names:
                 if request.method == "POST":
                     abort(Forbidden)
                 
                 elif section_names and session["section"] not in section_names:
-                    return redirect(url_for("admin.root"))
+                    return redirect(root_url())
             
-            if not ajax_or_new_tab:
+            if history:
                 store_history()
             
             try:
@@ -143,11 +204,17 @@ def is_valid_nhs_number(data):
 
 
 
-def tablerow(*args, deleted=False, **kwargs):
-    if deleted:
-        kwargs["class"] = "deleted {}".format(kwargs.get("class", ""))
+def tablerow(*args, **kwargs):
     return (args, kwargs)
-    
+
+
+
+def root_url():
+    section = session.get("section", None)
+    if section is None:
+        return url_for("auth.login")
+    return menus[section]()[0]["href"]
+
 
 
 def store_history():
@@ -198,7 +265,7 @@ def url_back(steps=-1):
     try:
         endpoint, args = session["endpoints"][steps-1]
     except (KeyError, IndexError):
-        return url_for("admin.root")
+        return root_url()
     args["dir"] = steps
     return url_for(endpoint, **args)
 
@@ -209,13 +276,10 @@ def url_fwrd(*args, **kwargs):
 
 
 
-def strftime(val, formatstring="%d %b %Y"):
-    try:
-        return val.strftime(formatstring)
-    except AttributeError:
-        return ""
+def back_exists():
+    return len(session["endpoints"]) > 1
     
-
+    
 
 def initial_surname(forename, surname):
     if forename:
@@ -231,14 +295,35 @@ def surname_forename(surname, forename):
 
 
 
-def account(name, conn):
-    sql = select([logins.c.username, logins.c.password, logins.c.info]). \
-            where(logins.c.name == name)
-    row = conn.execute(sql).first() or ()
-    if row:
-        row = dict(row)
-        for keyval in row.pop("info").split("|"):
-            keyval = keyval.split("=")
-            if len(keyval) == 2:
-                row[keyval[0].lower()] = keyval[1]
-    return row
+def sign_cookie(data):
+    session_serializer = SecureCookieSessionInterface() \
+                         .get_signing_serializer(current_app)
+    return session_serializer.dumps(dict(session))
+
+
+
+def unique_violation_or_reraise(e):
+    db_url = current_app.config["DB_URL"]
+    if db_url.startswith("postgresql"):
+        msg = repr(e.orig)
+        if msg.startswith("UniqueViolation"):
+            return msg.split("DETAIL:  Key (")[1].split(")")[0]
+        
+    elif db_url.startswith("sqlite://"):
+        # Need to confirm this works.
+        msg = e._message()
+        if " UNIQUE constraint failed: " in msg:
+            return msg.split(" UNIQUE constraint failed: ")[1].split(".")[1]
+
+    raise e
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    

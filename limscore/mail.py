@@ -15,7 +15,8 @@ class MailServer(object):
 
         Args:
             tls (bool): Put the SMTP connection in TLS mode if True.
-            kwargs (dict): Must contain username and smtp_url, may contain password and return_to.
+            kwargs (dict): Must contain username and smtp_url,
+                may contain password and return_to.
             
         Returns:
             None.
@@ -55,10 +56,12 @@ class MailServer(object):
         """Sends a single email message.
 
         Args:
-            recipients (string or list of stings): List of message recipients, either as a comma separated string or a list of strings.
+            recipients (string or list of stings): List of message recipients,
+                either as a comma separated string or a list of strings.
             subject (string): Message subject.
             body (string): Message body.
-            attachments (list): List of filename, content pairs (only .txt and .pdf filetypes supported).
+            attachments (list): List of filename, content pairs
+                (only .txt and .pdf filetypes supported).
             
         Returns:
             None.
@@ -80,15 +83,18 @@ class MailServer(object):
         msg.attach(MIMEText(body))
 
         for filename, content in attachments:
-            extension = os.path.splitext(filename)[1]
-            if extension == ".txt":
+            ext = os.path.splitext(filename)[1]
+            if ext == ".txt":
                 attachment = MIMEText(content)
-            elif extension == ".pdf":
+            elif ext == ".pdf":
                     attachment = MIMEApplication(content)
             else:
-                raise RuntimeError("Unknown email attachment type {}.".format(extension))
-            attachment.add_header("Content-Disposition", "attachment", filename=filename)
+                raise RuntimeError(f"Unknown email attachment type {ext}.")
+            attachment.add_header("Content-Disposition", "attachment",
+                                  filename=filename)
             msg.attach(attachment)
 
         server.send_message(msg, self.username, recipients + [self.username])
         
+
+

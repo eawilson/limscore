@@ -6,8 +6,8 @@ from flask import session
 from sqlalchemy import select, join, outerjoin, or_, and_
 from sqlalchemy.exc import IntegrityError
 
-from .models import users, users_groups
-
+from .models import users, users_groups, editlogs
+from.utils import utcnow
 
 
 def update_table(table, old_data, new_data, primary_keys, conn):
@@ -166,64 +166,78 @@ def m2m(primary_id, table, primary_column, linking_column, old_linking_ids, new_
 
 
 
-def edit_user(new_data, old_data, conn):
-    user_id = old_data.pop("id", None)
-    new_group_ids = set(new_data.pop("group_id", ()))
-    old_group_ids = set(old_data.get("group_id", ()))
+def edit_m2m(table, row_id, m2mtable, values, old_values, choices, conn):
+    new_ids = set(values)
+    old_ids = set(old_values)
+    to_ins = new_ids - old_ids
+    to_del = old_ids - new_ids
+    if not (to_ins or to_del):
+        return
     
-    if user_id is None:
-        user_id = conn.execute(users.insert().values(**new_data)).inserted_primary_key[0]
+    if len(m2mtable.c) != 2:
+        raise RuntimeError(f"{m2mtable.name} is not a valid linking table.")
+    for col in m2mtable.c:
+        foreign = tuple(col.foreign_keys)[0].column.table
+        if foreign == table:
+            primary = col
+        else:
+            secondary = col
+            other = foreign
+    names = dict(choice[:2] for choice in choices)
+    
+    if to_ins:
+        data = [{primary.name: row_id, secondary.name: sec_id}
+                for sec_id in to_ins]
+        conn.execute(m2mtable.insert(), data)
+        items = ", ".join(names[sec_id] for sec_id in to_ins)
+        details = {other.name: items}
+        crudlog(table.name, row_id, "Added", details, conn)
+    
+    if to_del:
+        sql = m2mtable.delete().where(and_(primary == row_id,
+                                           secondary.in_(to_del)))
+        conn.execute(sql)
+        items = ", ".join(names[sec_id] for sec_id in to_del)
+        details = {other.name: items}
+        crudlog(table.name, row_id, "Removed", details, conn)
+
+
+
+def admin_edit(table, row_id, values, old_values, conn, calculated_values={}):
+    values = {k: v for k, v in values.items() if not isinstance(v, list)}
+    if row_id is None:
+        sql = table.insert().values(**values, **calculated_values)
+        row_id = conn.execute(sql).inserted_primary_key[0]
+        action = "Created"
     else:
-        conn.execute(users.update().where(users.c.id == user_id).values(**new_data))
+        sql = table.update(). \
+                where(table.c.id == row_id). \
+                values(**values, **calculated_values)
+        conn.execute(sql)
+        action = "Edited"
 
-    if new_group_ids - old_group_ids:
-        conn.execute(users_groups.insert().values([{"group_id": group_id, "user_id": user_id} for group_id in (new_group_ids - old_group_ids)]))
-    if old_group_ids - new_group_ids:
-        conn.execute(users_groups.delete().where(and_(users_groups.c.user_id == user_id, users_groups.c.group_id.in_(old_group_ids - new_group_ids))))
-    return user_id
-
-    
-
-def admin_insert(table, values, conn):
-    if "order" in table.c and "order" not in values:
-        values["order"] = 99
-    return conn.execute(table.insert().values(**values))
-  
-  
-    
-def admin_delete(table, where, conn):
-    return conn.execute(table.delete().where(where))
-  
-  
-    
-def admin_update(table, where, values, conn):
-    return conn.execute(table.update().where(where).values(**values))
+    deleted = values.pop("deleted", None)
+    changed_values = {k: v for k, v 
+                      in values.items() 
+                      if v != old_values.get(k, None)}
+    if changed_values:
+        crudlog(table.name, row_id, action, changed_values, conn)
+    if deleted is not None:
+        action = "Deleted" if deleted else "Restored"
+        crudlog(table.name, row_id, action, {}, conn)
+    return row_id
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+def crudlog(tablename, row_id, action, details, conn):
+    if "password" in details:
+        details["password"] = "*****"
+    details = "\t".join(f"{k}={v}" for k, v in sorted(details.items()))
+    conn.execute(editlogs.insert().values(tablename=str(tablename),
+                                             row_id=row_id,
+                                             action=action,
+                                             details=details,
+                                             user_id=session["id"],
+                                             datetime=utcnow()))
 
 

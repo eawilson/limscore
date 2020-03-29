@@ -1,23 +1,34 @@
 {% import "macros.html" as macros %}
 
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
     <head>
-        <!-- Required meta tags -->
         <meta charset="utf-8">
         <meta name="robots" content="noindex,nofollow">
-        <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-
-        <!-- Bootstrap CSS -->
-        <link rel="stylesheet" href="{{ url_for('core.static', filename='css/jquery-ui-1.12.icon-font.min.css') }}">
-        <link rel="stylesheet" href="{{ url_for('core.static', filename='css/bootstrap-4.3.1.min.css') }}">
-        <link rel="stylesheet" href="{{ url_for('core.static', filename='css/integrated.css') }}">
-    
-        <title>{{ navbar.title }}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <!--title></title-->
+        
+        <link rel="stylesheet" href="{{ url_for('core.static', filename='picnic/picnic-6.5.0.min.css') }}">
+        <script defer src="">{{ url_for('core.static', filename='picnic/fontawesome-5.3.1.all.js') }}</script>
     </head>
 
     <body>
+        <nav>
+            <a href="#" class="brand">{{ }}</a>
+
+            <div class="menu">
+                <a href="#" class="pseudo button icon-picture">Demo</a>
+                <a href="#" class="button icon-puzzle">Plugins</a>
+            </div>
+        </nav>
   
+
+
+
+  </body>
+</html>
+
+
         <nav class="navbar navbar-expand-sm navbar-dark fixed-top bg-dark" ondragstart="return false;">
             <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#toolbartoggler">
                 <span class="navbar-toggler-icon"></span>
@@ -37,7 +48,7 @@
                     <li>
                         <span class="navbar-text">{{ navbar.site }}</span>
                     </li>
-                    <li class="nav-item dropdown" id="logout-menu" data-href="{{ url_for('admin.logout_menu') }}">
+                    <li class="nav-item dropdown" id="logout-menu" data-href="{{ url_for('auth.logout_menu') }}">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-toggle="dropdown">
                             <i class="ui-icon ui-icon-logout" id="logout-icon"></i>
                         </a>

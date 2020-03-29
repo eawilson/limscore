@@ -13,10 +13,9 @@ setup(name="limscore",
                       "flask",
                       "passlib",
                       "itsdangerous",
+                      "pytz",
                       "bcrypt"],
     include_package_data=True,
-    entry_points = { "console_scripts":
-        ["limscore_alembic=limscore.scripts.imscore_alembic:main"] },
     zip_safe=True,
     )
 

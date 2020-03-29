@@ -2,24 +2,56 @@ import os
 import glob
 from datetime import date
 
-from flask import Flask, Blueprint
+from flask import (Flask,
+                   Blueprint)
 from flask.json.tag import JSONTag
 
 from .models import create_engine
+from .admin import app as admin
+from .utils import (engine,
+                    url_fwrd,
+                    url_back,
+                    login_required,
+                    navbar,
+                    render_page,
+                    render_template,
+                    abort,
+                    valid_groups,
+                    utcnow,
+                    initial_surname,
+                    surname_forename,
+                    tablerow,
+                    root_url,
+                    sign_cookie,
+                    unique_violation_or_reraise,
+                    iso8601_to_utc)
+from .wrappers import (Local,
+                       Attr)
 
 
-from .utils import engine, url_fwrd, url_back, login_required, navbar, \
-                    as_navbar, abort, valid_groups, strftime, \
-                    initial_surname, surname_forename, tablerow
+__all__ = ["utcnow",
+           "Local",
+           "Attr",
+           "login_required",
+           "engine",
+           "abort",
+           "tablerow",
+           "url_fwrd",
+           "url_back",
+           "initial_surname",
+           "surname_forename",
+           "root_url",
+           "render_template",
+           "render_page",
+           "navbar",
+           "sign_cookie",
+           "unique_violation_or_reraise",
+           "iso8601_to_utc"]
 
-__all__ = ("engine", "login_required", "url_fwrd", "url_back", "create_app", \
-            "navbar", "as_navbar", "abort", "valid_groups", "strftime", \
-            "surname_forename", "initial_surname", "tablerow")
 
 
-
-def create_app(instance_path="", **kwargs):
-    instance_path = os.path.abspath(instance_path)
+def init_app(app):
+    instance_path = app.instance_path
 
     config_files = glob.glob(os.path.join(instance_path, "*.cfg"))
     if len(config_files) == 0:
@@ -39,7 +71,6 @@ def create_app(instance_path="", **kwargs):
         with open(config_file, "a") as f:
             f.write(f"\nSECRET_KEY = {os.urandom(16)}")
     
-    app = Flask(config["PACKAGE"], instance_path=instance_path, **kwargs)
     if not hasattr(app, "extensions"):
         app.extensions = {}
     app.config.from_pyfile(config_file)
@@ -81,6 +112,9 @@ def create_app(instance_path="", **kwargs):
                           static_folder="static", 
                           url_prefix="/core")
     app.register_blueprint(resources)
+    
+    from .auth import app as auth
+    app.register_blueprint(auth)
 
     if not app.debug:
         app.config.update(SESSION_COOKIE_SECURE=True,
@@ -96,8 +130,6 @@ def create_app(instance_path="", **kwargs):
             response.headers['X-Frame-Options'] = 'SAMEORIGIN'
             response.headers['X-XSS-Protection'] = '1; mode=block'
             return response
-    
-    return app
 
 
 

@@ -1,0 +1,33 @@
+td, th, a, span, label {
+    -webkit-user-select: none;
+    -moz-user-select: -moz-none;
+    -ms-user-select: none;
+    user-select: none;
+    }
+
+tr[data-href] {
+    cursor: pointer;
+    }
+
+.deleted {
+    text-decoration: line-through;
+    color: lightslategray;
+    }
+
+th.sorted.ascending:after {
+    font-family: "Font Awesome 5 Free";
+    content: " \f0de";
+}
+
+th.sorted.descending:after {
+    font-family: "Font Awesome 5 Free";
+	content: " \f0dd";
+}
+
+.main-section {
+    padding: 1.5rem;
+    }
+    
+input[type=checkbox] {
+    transform: scale(1.4);
+    }
