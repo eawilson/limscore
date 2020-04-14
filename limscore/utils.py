@@ -1,6 +1,7 @@
 import pdb
 import datetime
 from functools import wraps
+from collections import defaultdict
 
 from dateutil import parser
 import pytz
@@ -11,6 +12,8 @@ import flask
 from werkzeug.exceptions import Conflict, Forbidden, BadRequest, InternalServerError
 
 from sqlalchemy.exc import IntegrityError
+
+from .i18n import _
 
 
 __all__ = ["utcnow",
@@ -23,7 +26,6 @@ __all__ = ["utcnow",
            "url_back",
            "initial_surname",
            "surname_forename",
-           "root_url",
            "render_template",
            "render_page",
            "navbar",
@@ -33,12 +35,15 @@ __all__ = ["utcnow",
 
 
 
-menus = {}
+_navbars = defaultdict(lambda:lambda:())
 valid_groups = set(["Admin.Administrator"])
 
 
 
 def iso8601_to_utc(dt_string):
+    """ Convert a string in iso8601 format to a datetime with the timezone set
+        to UTC.
+    """
     dt = parser.isoparse(dt_string)
     return dt.astimezone(pytz.utc)
 
@@ -67,9 +72,11 @@ def render_page(name, active=None, **context):
     if "id" not in session:
         navbar = {"app": application}
     else:
-        section = session["section"]
+        section = session.get("section", "")
 
-        right = [{"text": session.get("project", ""),
+        right = [{"text": _("Help"),
+                  "href": url_for("auth.site_menu")},
+                 {"text": session.get("project", ""),
                   "href": url_for("auth.project_menu"),
                   "dropdown": True},
                  {"text": session.get("site", ""),
@@ -81,7 +88,7 @@ def render_page(name, active=None, **context):
         navbar = {"app": application,
                   "section": section,
                   "active": active,
-                  "left": menus[section](),
+                  "left": _navbars[section](),
                   "right": right}
     return render_template(name, navbar=navbar, **context)
 
@@ -100,7 +107,7 @@ def navbar(section):
     """ Decorator to register a new navbar menu.
     """
     def decorator(function):
-        menus[section] = function
+        _navbars[section] = function
         return function
     return decorator
 
@@ -168,7 +175,7 @@ def login_required(*groups, history=True):
                     abort(Forbidden)
                 
                 elif section_names and session["section"] not in section_names:
-                    return redirect(root_url())
+                    return redirect(url_for("auth.root", dir=0))
             
             if history:
                 store_history()
@@ -206,14 +213,6 @@ def is_valid_nhs_number(data):
 
 def tablerow(*args, **kwargs):
     return (args, kwargs)
-
-
-
-def root_url():
-    section = session.get("section", None)
-    if section is None:
-        return url_for("auth.login")
-    return menus[section]()[0]["href"]
 
 
 
@@ -265,7 +264,7 @@ def url_back(steps=-1):
     try:
         endpoint, args = session["endpoints"][steps-1]
     except (KeyError, IndexError):
-        return root_url()
+        return url_for("auth.root", dir=0)
     args["dir"] = steps
     return url_for(endpoint, **args)
 

@@ -1,5 +1,7 @@
 from pytz import timezone
+from babel.dates import format_datetime
 from flask import session
+
 
 
 class Local(object):
@@ -7,21 +9,20 @@ class Local(object):
         the specified formatstring. Also has a value property which is used
         to provide a data-sort value to sortable tables.
     """
-    def __init__(self, val, formatstring="%d %b %Y %H:%M"):
+    def __init__(self, val):
         self._val = val
-        self._formatstring = formatstring
         
     def __repr__(self):
         return "{}({})".format(type(self).__name__, repr(self._val))
     
-    def __str__(self):
+    def __html__(self):
         if self._val is None:
             return ""
         tz = timezone(session["timezone"])
-        return self._val.astimezone(tz).strftime(self._formatstring)
+        return format_datetime(self._val.astimezone(tz), locale=session["locale"])
     
-    def __html__(self):
-        return self.__str__()
+    def __str__(self):
+        return self.__html__()
     
     @property
     def value(self):
@@ -34,7 +35,7 @@ class Local(object):
 class Attr(object):
     """ Wrapper around any object passed to a template that will allow the
         the optional addition of additional attributes to control
-        formatting.
+        formatting and sorting.
     """
     def __init__(self, val, **kwargs):
         self._val = val

@@ -148,8 +148,8 @@ class Form(Fields):
     
     @property
     def error(self):
-        return self._error or \
-            ", ".join(field.errors for field in self.values() if field.errors)
+        return self._error
+            #", ".join(field.errors for field in self.values() if field.errors)
     
     
     @error.setter

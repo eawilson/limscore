@@ -1,4 +1,4 @@
-import os
+import os, pdb
 
 from smtplib import SMTP, SMTPException
 from email.mime.multipart import MIMEMultipart
@@ -10,7 +10,7 @@ __all__ = ("MailServer",)
 
 class MailServer(object):
     
-    def __init__(self, tls=True, **kwargs):
+    def __init__(self, server, username=None, password=None, use_tls=True, reply_to=None, sender=None):
         """Connects to SMTP server.
 
         Args:
@@ -26,18 +26,17 @@ class MailServer(object):
             SMTPAuthenticationError if password incorrect.
             SMTPException for everything else
         """
+        pdb.set_trace()
+        self.username = username
+        self.reply_to = reply_to
+        self.sender = sender
+
         self.server = SMTP()
-        try:
-            self.username = kwargs["username"]
-            self.server.connect(kwargs["smtp_url"])
-        except KeyError:
-            raise RuntimeError("Mailserver details missing from database.")
-            
-        self.reply_to = kwargs.get("reply_to", None)
-        if tls: 
+        self.server.connect(server)
+        if use_tls:
             self.server.starttls()
-        if kwargs["password"]:
-            self.server.login(self.username, kwargs["password"])
+        if username is not None and password is not None:
+            self.server.login(username, password)
 
     
     def __enter__(self):
@@ -74,7 +73,8 @@ class MailServer(object):
             recipients = recipients.split(",")
         
         msg = MIMEMultipart()
-        msg["From"] = self.username
+        if self.sender is not None:
+            msg["From"] = self.sender
         msg["To"] = ",".join(recipients)
         msg["Date"] = formatdate(localtime=True)
         msg["Subject"] = subject
@@ -94,7 +94,7 @@ class MailServer(object):
                                   filename=filename)
             msg.attach(attachment)
 
-        server.send_message(msg, self.username, recipients + [self.username])
+        server.send_message(msg, self.sender, recipients)
         
 
 

@@ -14,7 +14,12 @@ setup(name="limscore",
                       "passlib",
                       "itsdangerous",
                       "pytz",
+                      "Babel",
+                      "pyqrcode",
                       "bcrypt"],
+    entry_points = { "console_scripts":
+        ["waitress_serve=limscore.scripts.waitress_serve:main",
+         "limscore_babel=limscore.scripts.limscore_babel:main"] },
     include_package_data=True,
     zip_safe=True,
     )

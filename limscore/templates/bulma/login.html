@@ -1,4 +1,4 @@
-{% extends "bulma/bulma.html" %}
+{% extends "bulma/base.html" %}
 
 {% import "bulma/macros.html" as macros %}
 
@@ -20,7 +20,7 @@
                 
                 <div class="field is-grouped">
                     <div class="control"><input type="submit" class="button is-link" value="{{ submit[0] }}" formaction="{{ submit[1] }}"></div>
-                    {% if reset %}<div class="control"><input type="submit" class="button is-info is-light" value="{{ reset[0] }}" formaction="{{ reset[1] }}"></div>{% endif %}
+                    {% if reset %}<div class="control"><a class="button is-info is-light" href="{{ reset[1] }}">{{ reset[0] }}</a></div>{% endif %}
                     {% if back %}<div class="control"><a class="button is-link" href="{{ back[1] }}">{{ back[0] }}</a></div>{% endif %}
                 </div>
             </form>

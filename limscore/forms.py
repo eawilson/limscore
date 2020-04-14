@@ -1,3 +1,4 @@
+from .i18n import _
 from .lib.forms import (Form,
                         Input,
                         TextInput,
@@ -22,38 +23,43 @@ from .lib.forms import (Form,
 
 
 
+class TwoFactorForm(Form):
+    def definition(self):
+        self.secret = HiddenInput()
+
+
+
 class LoginForm(Form):
     def definition(self):
-        self.username = LowerCaseInput("Username or Email")
-        self.password = PasswordInput("Password", required=False)
-        self.timezone = HiddenInput()
+        self.email = EmailInput(_("Email"))
+        self.password = PasswordInput(_("Password"))
+        self.authenticator = IntegerInput(_("Authenticator Code"))
+        self.timezone = HiddenInput("", required=False)
 
 
 
 class ChangePasswordForm(Form):
     def definition(self):        
-        self.old_password = PasswordInput('Old Password', autocomplete="new-password")
-        self.password1 = PasswordInput('New Password', autocomplete="new-password")
-        self.password2 = PasswordInput('New Password', autocomplete="new-password")
+        self.old_password = PasswordInput(_("Old Password"), autocomplete="new-password")
+        self.password1 = PasswordInput(_("New Password"), autocomplete="new-password")
+        self.password2 = PasswordInput(_("New Password"), autocomplete="new-password")
 
     def validate(self):
         if super().validate() and self.password1.data != self.password2.data:
-            self.password1.errors = "Passwords must match."
+            self.password1.errors = _("Passwords must match.")
         return not self.errors
 
 
     
 class UserForm(Form):
     def definition(self):
-        self.username = LowerCaseInput("Username", autocomplete="new-password")
-        self.surname = TextInput("Surname")
-        self.forename = TextInput("Forename")        
-        self.email = EmailInput("Email")
-        self.password = PasswordInput('Password', autocomplete="new-password")
-        self.group_id = MultiCheckboxInput("Groups", required="Every user must be a member of at least one group.")
-        self.site_id = MultiCheckboxInput("Sites", required=False)
-        self.restricted = BooleanInput("Restrict Projects", details="Only allow access to selected projects.", required=False)        
-        self.project_id = MultiCheckboxInput("Projects", required=False)
+        self.surname = TextInput(_("Surname"))
+        self.forename = TextInput(_("Forename"))        
+        self.email = EmailInput(_("Email"))
+        self.groups = MultiCheckboxInput(_("Groups"), required=False)
+        self.sites = MultiCheckboxInput(_("Sites"), required=False)
+        self.restricted = BooleanInput(_("Restrict Projects"), details=_("Only allow access to selected projects."), required=False)        
+        self.projects = MultiCheckboxInput(_("Projects"), required=False)
 
 
 

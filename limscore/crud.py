@@ -11,9 +11,9 @@ from werkzeug.exceptions import Conflict, Forbidden, BadRequest
 
 from .utils import url_fwrd, url_back, tablerow, navbar, abort, engine, login_required, surname_forename, back_exists, render_page, unique_violation_or_reraise
 from .forms import ReorderForm
-from .logic import admin_edit, edit_m2m
+from . import logic
 from .models import metadata
-
+from .i18n import _
 
 __all__ = ("list_view", "reorder_view", "upsert_view", "crud_route", "app")
 
@@ -117,10 +117,10 @@ def list_view(*table_definition, title=None):#, **filters):
         args = dict(request.args)
         show = args.pop("show", False)
         if show:
-            buttons["info"] = ("Hide Deleted", url_for(request.endpoint, **request.view_args, **args))
+            buttons["info"] = (_("Hide Deleted"), url_for(request.endpoint, **request.view_args, **args))
         else:
             sql = sql.where(primary_table.c.deleted == False)
-            buttons["info"] = ("Show Deleted", url_for(request.endpoint, show="True", **request.view_args, **args))
+            buttons["info"] = (_("Show Deleted"), url_for(request.endpoint, show="True", **request.view_args, **args))
             
     #if filters:
         #where_clauses = [getattr(primary_table.c, key) == val for key, val
@@ -158,7 +158,7 @@ def list_view(*table_definition, title=None):#, **filters):
             buttons["new"] = ("", url_fwrd(upsert_endpoint))
     
     if back_exists():
-        buttons["back"] = ("Back", url_back())
+        buttons["back"] = (_("Back"), url_back())
     #if reorder_endpoint in current_app.view_functions:
         #buttons += [("Reorder", {"href": url_fwrd(reorder_endpoint), "class": "float-right"})]
     return render_page("table.html",
@@ -191,9 +191,9 @@ def reorder_view(primary_table):
                                    conn=conn)
             return redirect(url_back())
                 
-    buttons = [("Save", {"submit": url_for(request.endpoint)}),
-               ("Back", {"href": url_back()})]
-    title = "Reorder {}".format(primary_table.name.title())
+    buttons = [(_("Save"), {"submit": url_for(request.endpoint)}),
+               (_("Back"), {"href": url_back()})]
+    title = _("Reorder {}").format(primary_table.name.title())
     return  render_page("reorder.html",
                             title=title,
                             items=items,
@@ -277,7 +277,7 @@ def upsert_view(row_id, primary_table, FormClass):
             try:
                 row_id = admin_edit(primary_table, row_id, new_data, old_data, conn)
             except IntegrityError as e:
-                form[unique_violation_or_reraise(e)].errors = "Must be unique."
+                form[unique_violation_or_reraise(e)].errors = _("Must be unique.")
             else:
                 for name, m2mtable in m2mtables:
                     edit_m2m(primary_table,
@@ -289,16 +289,16 @@ def upsert_view(row_id, primary_table, FormClass):
                             conn)
                 return redirect(url_back())
 
-    title = "Edit" if row_id is not None else "New"
-    buttons = {"submit": ("Save", url_for(request.endpoint, row_id=row_id)),
-               "back": ("Cancel", url_back())}
+    title = _("Edit") if row_id is not None else _("New")
+    buttons = {"submit": (_("Save"), url_for(request.endpoint, row_id=row_id)),
+               "back": (_("Cancel"), url_back())}
     if row_id is not None and "deleted" in primary_table.c:
-        action = "Restore" if old_data["deleted"] else "Delete"
+        action = _("Restore") if old_data["deleted"] else _("Delete")
         url = url_for(request.endpoint, row_id=row_id, action=action)
         buttons["danger"] = (action, url)
     if row_id is not None:
         url = url_fwrd(".editlog", tablename=primary_table.name, row_id=row_id)
-        buttons["info"] = ("History", url)
+        buttons["info"] = (_("History"), url)
     return render_page("form.html", form=form, buttons=buttons, title=title)
 
 

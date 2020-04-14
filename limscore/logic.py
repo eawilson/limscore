@@ -6,7 +6,7 @@ from flask import session
 from sqlalchemy import select, join, outerjoin, or_, and_
 from sqlalchemy.exc import IntegrityError
 
-from .models import users, users_groups, editlogs
+from .models import users, users_groups, editlogs, metadata
 from.utils import utcnow
 
 
@@ -166,6 +166,28 @@ def m2m(primary_id, table, primary_column, linking_column, old_linking_ids, new_
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 def edit_m2m(table, row_id, m2mtable, values, old_values, choices, conn):
     new_ids = set(values)
     old_ids = set(old_values)
@@ -229,15 +251,110 @@ def admin_edit(table, row_id, values, old_values, conn, calculated_values={}):
 
 
 
-def crudlog(tablename, row_id, action, details, conn):
-    if "password" in details:
-        details["password"] = "*****"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def crud(table, new, old={}, conn=None, **choices):
+    changed = {k: v for k, v in new.items() if not isinstance(v, list) and v != old.get(k, None)}
+    if not old:
+        sql = table.insert().values(**changed)
+        row_id = conn.execute(sql).inserted_primary_key[0]
+        action = "Created"
+    else:
+        row_id = old["id"]
+        sql = table.update(). \
+                where(table.c.id == row_id). \
+                values(**changed)
+        conn.execute(sql)
+        action = "Edited"
+    deleted = changed.pop("deleted", None)
+    if changed:
+        loggable = {k: v for k, v in changed.items() if getattr(table.c, k).info.get("log", False)}
+        if loggable:
+            crudlog(table.name, row_id, action, loggable, conn)
+    
+    for k, v in new.items():
+        if isinstance(v, list):
+            new_ids = set(v)
+            old_ids = set(old.get(k, ()))
+            to_ins = new_ids - old_ids
+            to_del = old_ids - new_ids
+            if to_ins or to_del:
+                m2mtable = _linking_table(table, metadata.tables[k])
+                for col in m2mtable.c:
+                    thistable = tuple(col.foreign_keys)[0].column.table
+                    if thistable == table:
+                        primary = col
+                    else:
+                        secondary = col
+                names = dict(choice[:2] for choice in choices[k])
+                
+                if to_ins:
+                    data = [{primary.name: row_id, secondary.name: sec_id}
+                            for sec_id in to_ins]
+                    conn.execute(m2mtable.insert(), data)
+                    items = ", ".join(names[sec_id] for sec_id in to_ins)
+                    crudlog(table.name, row_id, "Added", {k: items}, conn)
+                
+                if to_del:
+                    sql = m2mtable.delete().where(and_(primary == row_id,
+                                                    secondary.in_(to_del)))
+                    conn.execute(sql)
+                    items = ", ".join(names[sec_id] for sec_id in to_del)
+                    crudlog(table.name, row_id, "Removed", {k: items}, conn)
+        
+    if deleted is not None:
+        action = "Deleted" if deleted else "Restored"
+        crudlog(table.name, row_id, action, conn)
+    return row_id
+    _("Created")
+    _("Edited")
+    _("Added")
+    _("Removed")
+    _("Deleted")
+    _("Restored")
+
+
+
+
+def crudlog(tablename, row_id, action, details={}, conn=None):
     details = "\t".join(f"{k}={v}" for k, v in sorted(details.items()))
     conn.execute(editlogs.insert().values(tablename=str(tablename),
                                              row_id=row_id,
                                              action=action,
                                              details=details,
-                                             user_id=session["id"],
+                                             user_id=session.get("id", None),
                                              datetime=utcnow()))
 
 
+
+def _linking_table(table1, table2):
+    found = 0
+    for table in metadata.sorted_tables:
+        if table == table1 or table == table2:
+            found += 1
+        elif found == 2:
+            joined = [tuple(col.foreign_keys)[0].column.table
+                      for col in table.c 
+                      if col.foreign_keys]
+            if table1 in joined and table2 in joined:
+                return table
+    
+    

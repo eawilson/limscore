@@ -9,10 +9,8 @@ from sqlalchemy.exc import IntegrityError
 
 from .utils import valid_groups
 from .models import (users,
-                     groups,
-                     users_groups)
-from limscore import logic
-
+                     groups)
+from . import logic, auth
 
 
 def run_alembic(package):
@@ -39,22 +37,21 @@ def run_alembic(package):
                     trans.rollback()
 
             if conn.execute(select([users.c.id])).first() is None:
-                group_id = conn.execute(select([groups.c.id]). \
-                            where(groups.c.name == "Admin.Administrator")). \
-                            first()[0]
-                values = {"username": "admin",
-                          "name": "A.Admin",
-                          "forename": "Admin",
-                          "surname": "Admin",
-                          "password": bcrypt_sha256.hash("change_me")}
-                sql = users.insert().values(**values)
-                user_id = conn.execute(sql).inserted_primary_key[0]
-                logic.session = {"id": user_id}
-                logic.crudlog("users", user_id, "Created", values, conn)
-                logic.edit_m2m(users,
-                               user_id,
-                               users_groups,
-                               [group_id],
-                               [],
-                               [(group_id, "Admin.Administrator")],
-                               conn)
+                email = app.config.get("ADMIN", None)
+                if email is None:
+                    print("Unable to create admin account as no ADMIN entry in config.")
+                else:
+                    group_id = conn.execute(select([groups.c.id]). \
+                                where(groups.c.name == "Admin.Administrator")). \
+                                scalar()
+                    new = {"email": email,
+                           "name": "A.Admin",
+                           "forename": "Admin",
+                           "surname": "Admin",
+                           "groups": [group_id]}
+                    group_id_choices = ((group_id, "Admin.Administrator"),)
+                    
+                    with app.test_request_context():
+                        logic.crud(users, new, conn=conn, groups=group_id_choices)
+                        auth.send_setpassword_email(email, conn)
+                    print(f"Admin login emailed to {email}.")

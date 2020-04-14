@@ -27,7 +27,6 @@ __all__ = ("metadata",
            "requestlogs")
 
 
-
 conv = {"ix": "ix_%(column_0_label)s",
         "uq": "uq_%(table_name)s_%(column_0_name)s",
         "ck": "ck_%(table_name)s_%(constraint_name)s",
@@ -76,23 +75,24 @@ def create_engine(db_url, *args, **kwargs):
                                       #executemany):
         #if not statement.startswith("SELECT"):
             #print(statement, repr(parameters))
-                
-    return engine
     
+    return engine
+
 
 
 users = Table("users", metadata,
     Column("id", Integer, primary_key=True),
+    Column("email", String, unique=True, nullable=False, info={"log": True}),
     Column("name", String, nullable=False),
-    Column("username", String, unique=True, nullable=False),
-    Column("forename", String, nullable=False),
-    Column("surname", String, nullable=False),
-    Column("email", String, unique=True, nullable=True),
-    Column("password", String, nullable=True),
+    Column("forename", String, nullable=False, info={"log": True}),
+    Column("surname", String, nullable=False, info={"log": True}),
+    Column("last_session", JSONB, default={}, nullable=False),
     Column("restricted", Boolean(name="Bool"), nullable=True),
-    Column("history", JSONB, default={}, nullable=False),
+    
+    Column("login_token", String, nullable=True),
+    Column("totp_secret", String, nullable=True),
+    Column("password", String, nullable=True),
     Column("reset_datetime", String, nullable=True),
-    Column("login_token", String, default="", nullable=False),
     Column("deleted", Boolean(name="bool"), default=False, nullable=False))
 
 

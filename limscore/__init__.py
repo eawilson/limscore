@@ -21,13 +21,12 @@ from .utils import (engine,
                     initial_surname,
                     surname_forename,
                     tablerow,
-                    root_url,
                     sign_cookie,
                     unique_violation_or_reraise,
                     iso8601_to_utc)
 from .wrappers import (Local,
                        Attr)
-
+from .i18n import i18n_init
 
 __all__ = ["utcnow",
            "Local",
@@ -40,7 +39,6 @@ __all__ = ["utcnow",
            "url_back",
            "initial_surname",
            "surname_forename",
-           "root_url",
            "render_template",
            "render_page",
            "navbar",
@@ -69,7 +67,8 @@ def init_app(app):
     
     if "SECRET_KEY" not in config:
         with open(config_file, "a") as f:
-            f.write(f"\nSECRET_KEY = {os.urandom(16)}")
+            secret_key = os.urandom(16)
+            f.write(f"\nSECRET_KEY = {secret_key}\n")
     
     if not hasattr(app, "extensions"):
         app.extensions = {}
@@ -79,7 +78,8 @@ def init_app(app):
     if db_url.startswith("sqlite:///") and db_url[10] != "/":
         cwd = os.getcwd()
         os.chdir(instance_path)
-        db_url = f"sqlite:///{os.path.abspath(db_url[10:])}"
+        db_path = os.path.abspath(db_url[10:])
+        db_url = f"sqlite:///{db_path}"
         app.config["DB_URL"] = db_url
         os.chdir(cwd)
     
@@ -130,6 +130,8 @@ def init_app(app):
             response.headers['X-Frame-Options'] = 'SAMEORIGIN'
             response.headers['X-XSS-Protection'] = '1; mode=block'
             return response
+    
+    i18n_init(app)
 
 
 
