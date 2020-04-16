@@ -205,64 +205,52 @@ def reorder_view(primary_table):
 
 def upsert_view(row_id, primary_table, FormClass):
     with engine.begin() as conn:
-        columns = [primary_table.c[name] for name in FormClass().keys() if name in primary_table.c]
+        form = FormClass()
+        choices = {}
+        columns = [primary_table.c[name] for name in form.keys() if name in primary_table.c]
+        columns += [primary_table.c.id]
         if "deleted" in primary_table.c:
             columns += [primary_table.c.deleted]
+
         if row_id is not None:
             sql = select(columns).where(primary_table.c.id == row_id)
             old_data = dict(conn.execute(sql).first() or abort(BadRequest))
         else:
             old_data = {}
-        form = FormClass()
-        
-        m2mtables = []
+            
         for name, field in form.items():
-            if not hasattr(field, "choices"):
-                continue
-            
-            # Many-to-one relationships
-            if name in primary_table.c:
-                column = primary_table.c[name]
-                foreign_table = tuple(column.foreign_keys)[0].column.table
-                sql = select([foreign_table.c.id, foreign_table.c.name]). \
-                        order_by(foreign_table.c.name)
-                if "deleted" in foreign_table.c:
-                    where = foreign_table.c.deleted == False
-                    if row_id is not None:
-                        where = or_(where, foreign_table.c.id == old_data[name])
-                    sql = sql.where(where)
-                field.choices = [tuple(row) for row in conn.execute(sql)]
-            
-            # Many-to-many relationships via linking table
-            else:
-                for m2mtable in primary_table.metadata.sorted_tables:
-                    if name in m2mtable.c and len(m2mtable.c) == 2:
-                        primary = None
-                        for col in m2mtable.c:
-                            table = tuple(col.foreign_keys)[0].column.table
-                            if table == primary_table:
-                                primary_col = col
-                            else:
-                                secondary_col = col
-                                foreign_table = table
+            if hasattr(field, "choices"):
 
-                        if primary_col is not None:
-                            sql = select([foreign_table.c.id, foreign_table.c.name, m2mtable.c[name]]). \
-                                    select_from(join(foreign_table, m2mtable, and_(foreign_table.c.id == secondary_col, primary_col == row_id), isouter=True)). \
-                                    order_by(foreign_table.c.name)
-                            if "deleted" in foreign_table.c:
-                                where = foreign_table.c.deleted == False
-                                if row_id is not None:
-                                    where = or_(where, primary_col == row_id)
-                                sql = sql.where(where)
-                            rows = [tuple(row) for row in conn.execute(sql)]
-                            field.choices = [tuple(row)[:2] for row in conn.execute(sql)]
-                            if row_id is not None:
-                                old_data[name] = [row[0] for row in rows if row[2]]
-                            m2mtables += [(name, m2mtable)]
-                            break
+                # Many to one relationship
+                if name in primary_table.c:
+                    column = primary_table.c[name]
+                    foreign_table = tuple(column.foreign_keys)[0].column.table
+                    sql = select([foreign_table.c.id, foreign_table.c.name]). \
+                            order_by(foreign_table.c.name)
+                    if "deleted" in foreign_table.c:
+                        where = (foreign_table.c.deleted == False)
+                        if row_id is not None:
+                            where = or_(where, foreign_table.c.id == old_data[name])
+                        sql = sql.where(where)
+                    rows = [tuple(row) for row in conn.execute(sql)]
+                
+                # Many to many relationship
                 else:
-                    raise RuntimeError(f"No linking table found for {name}.")
+                    foreign_table = metadata.tables[name]
+                    m2mtable, primary, secondary = logic._linking_table(primary_table, foreign_table)
+                    sql = select([foreign_table.c.id, foreign_table.c.name, primary]). \
+                            select_from(join(foreign_table, m2mtable, and_(foreign_table.c.id == secondary, primary == row_id), isouter=True)). \
+                            order_by(foreign_table.c.name)
+                    if "deleted" in foreign_table.c:
+                        where = (foreign_table.c.deleted == False)
+                        if row_id is not None:
+                            where = or_(where, primary_col == row_id)
+                        sql = sql.where(where)
+                    rows = [tuple(row) for row in conn.execute(sql)]
+                    if row_id is not None:
+                        old_data[name] = [row[0] for row in rows if row[2]]
+                   
+                choices[name] = field.choices = [tuple(row)[:2] for row in conn.execute(sql)]
  
         form.fill(request.form if request.method == "POST" else old_data)
 
@@ -275,18 +263,10 @@ def upsert_view(row_id, primary_table, FormClass):
                 new_data["deleted"] = False
             
             try:
-                row_id = admin_edit(primary_table, row_id, new_data, old_data, conn)
+                row_id = logic.crud(primary_table, new_data, old_data, conn, **choices)
             except IntegrityError as e:
                 form[unique_violation_or_reraise(e)].errors = _("Must be unique.")
             else:
-                for name, m2mtable in m2mtables:
-                    edit_m2m(primary_table,
-                            row_id,
-                            m2mtable,
-                            new_data[name],
-                            old_data.get(name, []),
-                            form[name].choices,
-                            conn)
                 return redirect(url_back())
 
     title = _("Edit") if row_id is not None else _("New")

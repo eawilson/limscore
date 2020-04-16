@@ -292,7 +292,7 @@ def setsite(site_id):
         row = conn.execute(sql).first()
         if row:
             site, last_session = row
-            session["sie_id"] = site_id
+            session["site_id"] = site_id
             session["site"] = site
             
             if last_session.get("site_id", None) != site_id:
@@ -353,7 +353,7 @@ def setproject(project_id):
 @app.route("/setlocale/<string:locale>")
 @login_required()
 def setlocale(locale):
-    if locale != session["locale"]:
+    if locale != session.get("locale", None):
         if locale in current_app.extensions.get("locales", ()):
             session["locale"] = locale
         else:
@@ -361,7 +361,7 @@ def setlocale(locale):
         with engine.begin() as conn:
             sql = select([users.c.last_session]).where(users.c.id == session["id"])
             last_session = conn.execute(sql).scalar()
-            if last_session["locale"] != session["locale"]:
+            if last_session.get("locale", None) != session["locale"]:
                 last_session["locale"] = session["locale"]
                 conn.execute(users.update().where(users.c.id == session["id"]).values(last_session=last_session))
     return redirect(url_back())

@@ -113,7 +113,7 @@ users_groups = Table("users_groups", metadata,
 
 sites = Table("sites", metadata,
     Column("id", Integer, primary_key=True, nullable=False),
-    Column("name", String, unique=True, nullable=False),
+    Column("name", String, unique=True, nullable=False, info={"log": True}),
     Column("deleted", Boolean(name="bool"), default=False, index=True, nullable=False))
 
 
