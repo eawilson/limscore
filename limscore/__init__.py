@@ -50,7 +50,6 @@ __all__ = ["utcnow",
 
 def init_app(app):
     instance_path = app.instance_path
-
     config_files = glob.glob(os.path.join(instance_path, "*.cfg"))
     if len(config_files) == 0:
         msg = f"No configuration file found in {instance_path}."
@@ -64,7 +63,7 @@ def init_app(app):
     config = {}
     with open(config_file, "rt") as f:
         exec(f.read(), config)
-    
+
     if "SECRET_KEY" not in config:
         with open(config_file, "a") as f:
             secret_key = os.urandom(16)

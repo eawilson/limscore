@@ -324,7 +324,7 @@ def crud(table, new, old={}, conn=None, **choices):
         
     if deleted is not None:
         action = "Deleted" if deleted else "Restored"
-        crudlog(table.name, row_id, action, conn)
+        crudlog(table.name, row_id, action, conn=conn)
     return row_id
     _("Created")
     _("Edited")

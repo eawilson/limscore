@@ -194,7 +194,7 @@ def users_upsert(row_id=None):
     buttons={"submit": (_("Save"), url_for(".users_upsert", row_id=row_id)),
              "back": (_("Cancel"), url_back())}
     if row_id is not None and row_id != session["id"]:
-        button_action = _("Restore") if old_data["deleted"] else _("Delete")
+        button_action = _("Restore") if old["deleted"] else _("Delete")
         url = url_for(".users_upsert", row_id=row_id, action=button_action)
         buttons["danger"] = (button_action, url)
     if row_id is not None:

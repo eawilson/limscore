@@ -10,7 +10,6 @@ from babel.messages.pofile import read_po
 
 def _(text):
     try:
-        print(text)
         return current_app.extensions["locales"][session["locale"]][text]
     except KeyError:
         return text
@@ -29,6 +28,7 @@ def i18n_init(app):
     for locale in os.listdir(locales_dir):        
         po_file = os.path.join(locales_dir, locale, "LC_MESSAGES", f"{locale}.po")
         if os.path.exists(po_file):
+            # TODO fix warning
             with open(po_file) as f:
                 catalog = read_po(f)
                 
@@ -42,9 +42,18 @@ def i18n_init(app):
     
     
 
+# TODO once tested enclose in a big try except as we can't trust anyone
 def locale_from_headers():
-    # en-GB,en-US;q=0.9,en;q=0.8
-    languages = request.headers.get("Accept-Language", "")
+    # eg en-GB,en-US;q=0.9,en;q=0.8
+    locales = current_app.extensions["locales"]
+    accept_header = request.headers.get("Accept-Language", "")
+    weighted_lang = [token.strip().split(";q=") for token in accept_header.split(",")]
+    sorted_lang = sorted(weighted_lang, key=lambda x:float(x[1]) if len(x)>1 else 1.0, reverse=True)
+    for lang_q in sorted_lang:
+        lang = lang_q[0]
+        locale = "_".join(lang.split("-")[:2])
+        if locale in locales:
+            return locale
     return "en_GB"
     
     

@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-THREADS=""
 APP=""
 EMAIL=""
 
@@ -43,13 +42,13 @@ cd ..
 
 cat >$APP.service <<EOF 
 [Unit]
-Description=AIREAL web app
+Description=aireal
 After=network.target
 
 [Service]
 User=flask
-WorkingDirectory=~/home/flask/$APP_prod
-ExecStart=aireal_serve
+WorkingDirectory=/home/flask/$APP_prod
+ExecStart=/usr/local/bin/waitress_serve --port 8080 '$APP:create_app(\"/home/flask/aireal_prod\")'
 Restart=always
 
 [Install]

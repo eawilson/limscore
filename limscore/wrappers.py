@@ -6,20 +6,29 @@ from flask import session
 
 class Local(object):
     """ Wrapper around a datetime object thar will print in local time with
-        the specified formatstring. Also has a value property which is used
+        the specified format. Also has a value property which is used
         to provide a data-sort value to sortable tables.
     """
-    def __init__(self, val):
+    def __init__(self, val, format="medium"):
         self._val = val
+        self._format = format
         
     def __repr__(self):
-        return "{}({})".format(type(self).__name__, repr(self._val))
+        return "{}({}, format='{}')".format(type(self).__name__,
+                                            repr(self._val),
+                                            self._format)
     
     def __html__(self):
         if self._val is None:
             return ""
         tz = timezone(session["timezone"])
-        return format_datetime(self._val.astimezone(tz), locale=session["locale"])
+        dt = self._val.astimezone(tz)
+        ret = format_datetime(dt, 
+                              format=self._format,
+                              locale=session["locale"])
+        if self._format != "long":
+            ret = "{} {}".format(ret, dt.strftime("%Z"))
+        return ret
     
     def __str__(self):
         return self.__html__()
@@ -54,3 +63,26 @@ class Attr(object):
         except KeyError:
             msg = "'{}' object has no attribute '{}'"
             raise AttributeError(msg.format(type(self).__name__, attr))
+
+
+
+#class Number(object):
+    #""" Wrapper around any object passed to a template that will allow the
+        #the optional addition of additional attributes to control
+        #formatting and sorting.
+    #"""
+    #def __init__(self, val):
+        #self._val = val
+     
+    #def __repr__(self):
+        #return "{}({})".format(type(self).__name__, str(self._val))
+           
+    #def __str__(self): 
+        #return str(self._val)
+    
+    #def __getattr__(self, attr):
+        #try:
+            #return self._kwargs[attr]
+        #except KeyError:
+            #msg = "'{}' object has no attribute '{}'"
+            #raise AttributeError(msg.format(type(self).__name__, attr))

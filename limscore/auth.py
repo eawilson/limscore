@@ -213,9 +213,9 @@ def logout_menu():
                 [{"text": name, "href": url_fwrd(".setlocale", locale=locale)} for name, locale in sorted(rows)] + \
                 [{"divider": True}]
     
-    menu += [{"text": _("Change Password"), "href": url_fwrd(".change_password")},
+    menu += [{"text": _("Account")},
+             {"text": _("Change Password"), "href": url_fwrd(".change_password")},
              {"text": _("Two Factor Auth"), "href": url_fwrd(".twofactor")},
-             {"divider": True},
              {"text": _("Logout"), "href": url_for(".logout")}]
     return render_template("dropdown.html", items=menu)
 
@@ -377,7 +377,7 @@ def change_password():
             sql = select([users.c.password]). \
                         where(users.c.id == session["id"])
             old_password = conn.execute(sql).scalar()
-            if result and bcrypt_sha256.verify(form.old_password.data, old_password):
+            if old_password and bcrypt_sha256.verify(form.old_password.data, old_password):
                 new = {"password": bcrypt_sha256.hash(form.password1.data),
                        "reset_datetime": None}
                 old = {"id": session["id"]}

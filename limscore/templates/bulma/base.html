@@ -60,11 +60,11 @@
             {% if tabs %}
                 <div class="tabs is-boxed">
                     <ul>
-                        {% for item in tabs %}
-                            {% if item.active %}
-                                <li class="is-active">{{ item.text }}{% if item.badge %}<span class="tag is-dark">{{ item.badge }}</span>{% endif %}</li>
+                        {% for tab in tabs %}
+                            {% if tab.active %}
+                                <li class="is-active"><a href="#">{{ tab.text }}{% if tab.badge %}<span class="tag is-dark">{{ tab.badge }}</span>{% endif %}</a></li>
                             {% else %}
-                                <li><a href="{{ item.href }}">{{ item.text }}{% if tab.badge %}<span class="tag is-dark">{{ tab.badge }}</span>{% endif %}</a></li>
+                                <li><a href="{{ tab.href }}">{{ tab.text }}{% if tab.badge %}<span class="tag is-dark">{{ tab.badge }}</span>{% endif %}</a></li>
                             {% endif %}
                         {% endfor %}
                     </ul>
